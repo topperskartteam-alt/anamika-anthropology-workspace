@@ -17,9 +17,33 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Hub_Renderer {
 
 	/**
-	 * @return string Rendered Hub HTML.
+	 * Guards against rendering the Hub (and therefore its breadcrumb)
+	 * twice on the same page request.
+	 *
+	 * v0.4.1 red-team fix: if an admin assigns a page via Glossary ->
+	 * Settings AND that same page's body also contains the
+	 * `[vaid_glossary_hub]` shortcode, v0.4.0 rendered the Hub twice —
+	 * Hub_Page::inject_on_assigned_page() (on `the_content`, priority 10)
+	 * appended one full render, then WordPress's own `do_shortcode()` (on
+	 * `the_content`, priority 11) expanded the shortcode text already
+	 * present in the page body into a second render, producing two Hubs
+	 * and two breadcrumbs on one page. Both entry points now funnel
+	 * through this single guarded render() method.
+	 *
+	 * @var bool
+	 */
+	private static $rendered = false;
+
+	/**
+	 * @return string Rendered Hub HTML, or an empty string if the Hub has
+	 *                 already been rendered once during this request.
 	 */
 	public static function render() {
+		if ( self::$rendered ) {
+			return '';
+		}
+		self::$rendered = true;
+
 		Frontend_Assets::mark_hub_rendered();
 
 		$terms = self::get_published_terms();

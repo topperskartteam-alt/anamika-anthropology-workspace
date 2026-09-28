@@ -3,9 +3,13 @@
  * Post meta registration for vaid_glossary_term.
  *
  * Short definition + aliases are the only fields rendered publicly in
- * v0.4.0. Related term IDs / examples / sources are registered now
- * (future-ready data model) but are never read by any public template
- * in this pilot.
+ * v0.4.0 (via the server-rendered Hub template, not REST). Related term
+ * IDs / examples / sources are registered now (future-ready data model)
+ * but are never read by any public template in this pilot.
+ *
+ * v0.4.1: all fields register with `show_in_rest => false`, matching the
+ * CPT's own REST exposure being disabled in class-cpt.php — nothing in
+ * this plugin reads these fields via the REST API today.
  *
  * @package VAID\Glossary
  */
@@ -37,7 +41,7 @@ class Meta_Fields {
 			array(
 				'type'              => 'string',
 				'single'            => true,
-				'show_in_rest'      => true,
+				'show_in_rest'      => false,
 				'sanitize_callback' => 'sanitize_textarea_field',
 				'auth_callback'     => array( __CLASS__, 'can_edit' ),
 			)
@@ -49,12 +53,7 @@ class Meta_Fields {
 			array(
 				'type'              => 'array',
 				'single'            => true,
-				'show_in_rest'      => array(
-					'schema' => array(
-						'type'  => 'array',
-						'items' => array( 'type' => 'string' ),
-					),
-				),
+				'show_in_rest'      => false,
 				'sanitize_callback' => array( __CLASS__, 'sanitize_aliases' ),
 				'auth_callback'     => array( __CLASS__, 'can_edit' ),
 			)
@@ -66,7 +65,7 @@ class Meta_Fields {
 			array(
 				'type'              => 'string',
 				'single'            => true,
-				'show_in_rest'      => true,
+				'show_in_rest'      => false,
 				'sanitize_callback' => 'sanitize_text_field',
 				'auth_callback'     => array( __CLASS__, 'can_edit' ),
 			)
@@ -79,12 +78,7 @@ class Meta_Fields {
 			array(
 				'type'          => 'array',
 				'single'        => true,
-				'show_in_rest'  => array(
-					'schema' => array(
-						'type'  => 'array',
-						'items' => array( 'type' => 'integer' ),
-					),
-				),
+				'show_in_rest'  => false,
 				'auth_callback' => array( __CLASS__, 'can_edit' ),
 			)
 		);
@@ -95,12 +89,7 @@ class Meta_Fields {
 			array(
 				'type'          => 'array',
 				'single'        => true,
-				'show_in_rest'  => array(
-					'schema' => array(
-						'type'  => 'array',
-						'items' => array( 'type' => 'string' ),
-					),
-				),
+				'show_in_rest'  => false,
 				'auth_callback' => array( __CLASS__, 'can_edit' ),
 			)
 		);
@@ -111,12 +100,7 @@ class Meta_Fields {
 			array(
 				'type'          => 'array',
 				'single'        => true,
-				'show_in_rest'  => array(
-					'schema' => array(
-						'type'  => 'array',
-						'items' => array( 'type' => 'object' ),
-					),
-				),
+				'show_in_rest'  => false,
 				'auth_callback' => array( __CLASS__, 'can_edit' ),
 			)
 		);

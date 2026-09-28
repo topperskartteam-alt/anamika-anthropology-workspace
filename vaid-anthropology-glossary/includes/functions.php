@@ -38,24 +38,57 @@ function vaid_glossary_derive_first_letter( $title ) {
 }
 
 /**
- * Normalize a title for duplicate comparison: case-insensitive,
- * whitespace-collapsed, punctuation-insensitive on the edges.
+ * Multi-byte-safe lowercasing, with a graceful fallback if the mbstring
+ * extension is somehow unavailable.
+ *
+ * Plain strtolower() is byte-based and does not lowercase non-ASCII
+ * characters (e.g. accented anthropology terms like "Lévi-Strauss"),
+ * which would make case-insensitive comparisons/search non-deterministic
+ * for such titles. Used by both duplicate-title normalization and the
+ * client-side search haystack, so the two stay consistent with each
+ * other and with JavaScript's Unicode-aware String.toLowerCase().
+ *
+ * @param string $value Raw value.
+ * @return string Lowercased value.
+ */
+function vaid_glossary_mb_strtolower( $value ) {
+	$value = (string) $value;
+
+	if ( function_exists( 'mb_strtolower' ) ) {
+		return mb_strtolower( $value, 'UTF-8' );
+	}
+
+	return strtolower( $value );
+}
+
+/**
+ * Normalize a title for duplicate comparison: case-insensitive
+ * (Unicode-aware), whitespace-collapsed, punctuation-insensitive on the
+ * edges.
  *
  * @param string $title Raw title.
  * @return string Normalized comparison key.
  */
 function vaid_glossary_normalize_title( $title ) {
 	$title = wp_strip_all_tags( (string) $title );
-	$title = strtolower( $title );
+	$title = vaid_glossary_mb_strtolower( $title );
 	$title = preg_replace( '/\s+/', ' ', $title );
 	return trim( $title );
 }
 
 /**
- * Strip characters that would let a CSV cell be interpreted as a formula
- * by spreadsheet software (CSV formula injection guard). Applied on both
- * import (sanitizing untrusted uploads) and export (defense in depth for
- * anything an editor may have pasted into a term field).
+ * Prefix a leading apostrophe onto a value that would otherwise be
+ * interpreted as a formula by spreadsheet software (the standard,
+ * OWASP-recommended CSV formula-injection mitigation).
+ *
+ * v0.4.1 red-team correction: this is EXPORT-ONLY. v0.4.0 also applied it
+ * during CSV import, which permanently mutated legitimate stored content
+ * — a term titled "-5 degree adaptation" or a definition starting with
+ * "@" would have a stray leading apostrophe baked into the actual
+ * WordPress title/meta value forever. The formula-injection threat model
+ * only applies when THIS PLUGIN later outputs a CSV that a human opens in
+ * a spreadsheet app (i.e. CSV_Export) — not when data is merely stored in
+ * the WordPress database (CSV_Import no longer calls this function).
  *
  * @param string $value Raw cell value.
  * @return string Sanitized cell value.

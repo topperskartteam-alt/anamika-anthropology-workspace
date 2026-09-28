@@ -10,16 +10,18 @@ Repository workspace for the VAID Anthropology Glossary WordPress plugin.
 - [`vaid-anthropology-glossary/`](./vaid-anthropology-glossary/) — the plugin
   source (display name **VAID Anthropology Glossary**, slug
   `vaid-anthropology-glossary`).
-- [`vaid-anthropology-glossary-0.4.0.zip`](./vaid-anthropology-glossary-0.4.0.zip) —
-  the packaged v0.4.0 pilot build, ready for manual installation on a
-  WordPress test/staging site.
+- [`vaid-anthropology-glossary-0.4.1.zip`](./vaid-anthropology-glossary-0.4.1.zip) —
+  current packaged build (Round 3.1 red-team repair), ready for manual
+  installation on a WordPress test/staging site.
+  `vaid-anthropology-glossary-0.4.0.zip` is kept for history only — use
+  0.4.1.
 - [`CHANGELOG.md`](./CHANGELOG.md) — version history.
 - [`QA-CHECKLIST.md`](./QA-CHECKLIST.md) — manual QA checklist for WordPress
   installation (this repository build cannot run WordPress itself).
 - [`BUILD-REPORT.md`](./BUILD-REPORT.md) — what was built, deviations,
   checks run, known limitations, and installation/test steps.
 
-## What this plugin does (v0.4.0 pilot)
+## What this plugin does (v0.4.1 pilot)
 
 Admin-managed Anthropology & UPSC glossary terms (`vaid_glossary_term`
 custom post type, not individually public in this version), a CSV

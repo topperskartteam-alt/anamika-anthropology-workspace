@@ -1,8 +1,37 @@
-# QA Checklist — VAID Anthropology Glossary v0.4.0
+# QA Checklist — VAID Anthropology Glossary v0.4.1
 
 For manual execution on a real WordPress test/staging install. None of
 this could be run inside the cloud repository build (no live WordPress
 available there) — see BUILD-REPORT.md for what *was* verified in-repo.
+
+## 0. Round 3.1 red-team repairs (v0.4.1 additions)
+- [ ] `/wp-json/wp/v2/vaid-glossary-terms` (or any glossary REST route)
+      returns 404/no route when requested anonymously — confirms REST
+      exposure is actually closed, not just configured.
+- [ ] Adding a term via the classic Add/Edit screen with a title that
+      exactly matches an existing term (any case/whitespace variant)
+      shows a WordPress die screen with a "go back" link, and confirms
+      via the database that **no new post row was created** (check the
+      All Terms count before/after).
+- [ ] Quick Edit (inline, from the list table) on a term, renaming it to
+      collide with another existing term's title, does NOT hard-crash
+      the inline editor — confirms the AJAX-path fallback still works
+      without corrupting the list-table UI.
+- [ ] Uploading a non-CSV file (e.g. a renamed `.txt` or `.php` file) to
+      Import CSV is rejected with a clear "must be a .csv file" error
+      before any parsing happens.
+- [ ] Importing a CSV containing a short_definition or title that starts
+      with `-`, `+`, `@`, or `=` (e.g. "-5 degree adaptation") stores the
+      value **exactly as entered**, with no stray leading apostrophe —
+      confirms the formula-injection guard no longer corrupts import
+      data. Exporting that same term SHOULD show the leading-apostrophe
+      mitigation applied in the downloaded CSV.
+- [ ] Assign a page as the Hub in Settings, then also paste
+      `[vaid_glossary_hub]` into that same page's body — confirm only
+      ONE Hub (and one breadcrumb) renders, not two.
+- [ ] Add a term with an accented title (e.g. "Lévi-Strauss") and search
+      for it using a lowercase, unaccented-adjacent query — confirm
+      search still matches case-insensitively as expected.
 
 ## 1. Activation
 - [ ] Plugin activates with no PHP notices/warnings/fatals (`WP_DEBUG` on).

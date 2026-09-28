@@ -9,6 +9,15 @@
  * or unwanted batch can be rolled back afterwards (posts are trashed,
  * never hard-deleted, by the rollback action).
  *
+ * v0.4.1 red-team corrections applied here: file MIME/extension is
+ * validated before parsing (validate_uploaded_file()); the
+ * formula-injection guard is no longer applied on import (see
+ * functions.php — it is export-only now, so legitimate content is never
+ * mutated); a row whose wp_insert_post() call fails is now counted and
+ * reported rather than silently dropped from the totals; and the
+ * Confirm/Rollback nonces are bound to the specific token/batch ID they
+ * act on, not just a generic action name.
+ *
  * @package VAID\Glossary
  */
 
@@ -79,6 +88,11 @@ class CSV_Import {
 			wp_die( esc_html__( 'No file was uploaded, or the upload failed.', 'vaid-anthropology-glossary' ) );
 		}
 
+		$file_error = self::validate_uploaded_file( $_FILES['vaid_glossary_csv'] );
+		if ( is_wp_error( $file_error ) ) {
+			wp_die( esc_html( $file_error->get_error_message() ) );
+		}
+
 		$rows = self::parse_csv( $_FILES['vaid_glossary_csv']['tmp_name'] );
 
 		if ( is_wp_error( $rows ) ) {
@@ -104,8 +118,43 @@ class CSV_Import {
 	}
 
 	/**
+	 * Validate the uploaded file's extension and actual MIME type before
+	 * it is ever opened as CSV — v0.4.1 red-team addition (v0.4.0 had no
+	 * such check and would attempt to fopen()/fgetcsv() parse whatever was
+	 * uploaded, regardless of type). Uses wp_check_filetype_and_ext(),
+	 * which content-sniffs the real file in addition to checking the
+	 * claimed extension, so a renamed non-CSV file is still rejected.
+	 *
+	 * This does not by itself change the file's own security exposure —
+	 * the temp upload is only ever read (fopen/fgetcsv), never moved into
+	 * a web-accessible directory or executed — but it gives a clear error
+	 * for a wrong file type instead of silently attempting to parse
+	 * garbage, and closes the "no MIME/extension handling" gap named in
+	 * the red-team brief.
+	 *
+	 * @param array $file One entry of the $_FILES superglobal.
+	 * @return true|\WP_Error
+	 */
+	private static function validate_uploaded_file( array $file ) {
+		$file_name = isset( $file['name'] ) ? sanitize_file_name( wp_unslash( $file['name'] ) ) : '';
+
+		$check = wp_check_filetype_and_ext( $file['tmp_name'], $file_name, array( 'csv' => 'text/csv' ) );
+
+		if ( empty( $check['ext'] ) || 'csv' !== $check['ext'] ) {
+			return new \WP_Error(
+				'vaid_glossary_import_bad_filetype',
+				__( 'The uploaded file must be a .csv file.', 'vaid-anthropology-glossary' )
+			);
+		}
+
+		return true;
+	}
+
+	/**
 	 * Parse an uploaded CSV file into an array of associative rows,
-	 * sanitizing every cell against formula injection and stripping tags.
+	 * sanitizing every cell (tag-stripping only — NOT the formula-injection
+	 * guard, which is export-only as of v0.4.1; see
+	 * vaid_glossary_sanitize_csv_cell()'s docblock in functions.php).
 	 *
 	 * @param string $tmp_path Path to the uploaded temp file.
 	 * @return array|\WP_Error
@@ -139,7 +188,12 @@ class CSV_Import {
 			$assoc = array();
 			foreach ( $header as $index => $col_name ) {
 				$raw               = isset( $line[ $index ] ) ? $line[ $index ] : '';
-				$assoc[ $col_name ] = vaid_glossary_sanitize_csv_cell( sanitize_textarea_field( $raw ) );
+				// Tag-stripping only. No formula-injection prefixing here —
+				// see vaid_glossary_sanitize_csv_cell()'s docblock: that
+				// mitigation belongs at export time only, not on data being
+				// stored, or it permanently corrupts legitimate content
+				// that happens to start with -, +, @, or =.
+				$assoc[ $col_name ] = sanitize_textarea_field( $raw );
 			}
 
 			$rows[] = array(
@@ -271,7 +325,7 @@ class CSV_Import {
 		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-top:1em;">
 			<input type="hidden" name="action" value="vaid_glossary_import_confirm" />
 			<input type="hidden" name="vaid_token" value="<?php echo esc_attr( $token ); ?>" />
-			<?php wp_nonce_field( self::NONCE_CONFIRM ); ?>
+			<?php wp_nonce_field( self::NONCE_CONFIRM . '_' . $token ); ?>
 			<?php submit_button( __( 'Confirm Import (rows marked OK or Warning only)', 'vaid-anthropology-glossary' ), 'primary', 'submit', false ); ?>
 			<a href="<?php echo esc_url( remove_query_arg( 'vaid_token' ) ); ?>" class="button" style="margin-left:8px;"><?php esc_html_e( 'Cancel / upload a different file', 'vaid-anthropology-glossary' ); ?></a>
 		</form>
@@ -287,9 +341,13 @@ class CSV_Import {
 			wp_die( esc_html__( 'You do not have permission to do this.', 'vaid-anthropology-glossary' ) );
 		}
 
-		check_admin_referer( self::NONCE_CONFIRM );
-
+		// v0.4.1 red-team hardening: the nonce action is bound to the
+		// specific token being confirmed, not just the generic "confirm"
+		// action, so a valid nonce for one pending report cannot be reused
+		// to confirm a different token.
 		$token = isset( $_POST['vaid_token'] ) ? sanitize_key( wp_unslash( $_POST['vaid_token'] ) ) : '';
+		check_admin_referer( self::NONCE_CONFIRM . '_' . $token );
+
 		$report = $token ? get_transient( self::transient_key( $token ) ) : false;
 
 		if ( ! $report ) {
@@ -299,6 +357,7 @@ class CSV_Import {
 		$batch_id  = Import_Batch_Log::new_batch_id();
 		$created   = 0;
 		$skipped   = 0;
+		$failed    = 0;
 
 		foreach ( $report['rows'] as $row ) {
 			if ( 'block' === $row['validation_status'] ) {
@@ -316,6 +375,12 @@ class CSV_Import {
 			);
 
 			if ( is_wp_error( $post_id ) ) {
+				// v0.4.1 red-team correction: v0.4.0 silently `continue`d
+				// here without counting the row anywhere, so a genuine
+				// insert failure (e.g. a DB error) vanished from the
+				// reported totals — "created" + "skipped" would undercount
+				// the rows actually processed. Now counted and reported.
+				++$failed;
 				continue;
 			}
 
@@ -345,6 +410,7 @@ class CSV_Import {
 				'page'           => 'vaid-glossary-import',
 				'vaid_imported'  => $created,
 				'vaid_skipped'   => $skipped,
+				'vaid_failed'    => $failed,
 				'vaid_batch'     => $batch_id,
 			),
 			admin_url( 'edit.php' )
@@ -360,13 +426,15 @@ class CSV_Import {
 
 	private static function render_recent_batches() {
 		if ( isset( $_GET['vaid_imported'] ) ) {
+			$failed_count = isset( $_GET['vaid_failed'] ) ? (int) $_GET['vaid_failed'] : 0;
 			printf(
 				'<div class="notice notice-success"><p>%s</p></div>',
 				sprintf(
-					/* translators: 1: created count, 2: skipped count, 3: batch id */
-					esc_html__( 'Import complete: %1$d term(s) created, %2$d row(s) skipped (blocked). Batch ID: %3$s', 'vaid-anthropology-glossary' ),
+					/* translators: 1: created count, 2: skipped count, 3: batch id, 4: failed-insert count */
+					esc_html__( 'Import complete: %1$d term(s) created, %2$d row(s) skipped (blocked), %3$d row(s) failed to insert. Batch ID: %4$s', 'vaid-anthropology-glossary' ),
 					(int) $_GET['vaid_imported'],
 					(int) $_GET['vaid_skipped'],
+					$failed_count,
 					esc_html( isset( $_GET['vaid_batch'] ) ? sanitize_text_field( wp_unslash( $_GET['vaid_batch'] ) ) : '' )
 				)
 			);
@@ -397,7 +465,7 @@ class CSV_Import {
 						<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" onsubmit="return confirm('<?php echo esc_js( __( 'Move every term created by this batch to Trash? This does not touch any other term.', 'vaid-anthropology-glossary' ) ); ?>');">
 							<input type="hidden" name="action" value="vaid_glossary_import_rollback" />
 							<input type="hidden" name="vaid_batch_id" value="<?php echo esc_attr( $batch->batch_id ); ?>" />
-							<?php wp_nonce_field( self::NONCE_ROLLBACK ); ?>
+							<?php wp_nonce_field( self::NONCE_ROLLBACK . '_' . $batch->batch_id ); ?>
 							<?php submit_button( __( 'Rollback (trash batch)', 'vaid-anthropology-glossary' ), 'delete small', 'submit', false ); ?>
 						</form>
 					</td>
@@ -413,12 +481,13 @@ class CSV_Import {
 			wp_die( esc_html__( 'You do not have permission to do this.', 'vaid-anthropology-glossary' ) );
 		}
 
-		check_admin_referer( self::NONCE_ROLLBACK );
-
 		$batch_id = isset( $_POST['vaid_batch_id'] ) ? sanitize_text_field( wp_unslash( $_POST['vaid_batch_id'] ) ) : '';
 		if ( '' === $batch_id ) {
 			wp_die( esc_html__( 'Missing batch ID.', 'vaid-anthropology-glossary' ) );
 		}
+
+		// v0.4.1 red-team hardening: nonce bound to the specific batch ID.
+		check_admin_referer( self::NONCE_ROLLBACK . '_' . $batch_id );
 
 		$count = Import_Batch_Log::rollback( $batch_id );
 

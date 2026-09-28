@@ -4,7 +4,9 @@
  * the CSV import validator, so both enforce identical rules.
  *
  * Rules (Round-3 control-room correction, section 6):
- * - normalized exact-title collision            -> HARD BLOCK
+ * - normalized exact-title collision            -> HARD BLOCK (v0.4.1: a
+ *   genuine pre-insert wp_die() stop on the interactive admin save path —
+ *   see block_exact_duplicate_on_save() docblock for the AJAX exception)
  * - exact alias-to-existing-title collision      -> WARN, import row blocked unless resolved
  * - alias-to-alias collision                     -> WARN/flag, not silent overwrite
  * - near/fuzzy title similarity                  -> WARN ONLY, never auto-block
@@ -91,15 +93,43 @@ class Duplicate_Guard {
 
 	/**
 	 * Hard-block save of a new/edited glossary term whose normalized title
-	 * exactly matches an existing term. Implemented via wp_insert_post_data
-	 * so it applies to both classic Add/Edit and REST/block-editor saves.
+	 * exactly matches an existing term, via the `wp_insert_post_data`
+	 * filter — this runs INSIDE wp_insert_post(), before its `$wpdb->insert()`
+	 * / `$wpdb->update()` call, so it is a genuine pre-insert intervention,
+	 * not a post-save cleanup.
+	 *
+	 * v0.4.1 red-team correction: v0.4.0 always downgraded a duplicate save
+	 * to Draft status, which still inserted a duplicate row into the
+	 * database — not a real "HARD BLOCK" as the product rule requires. For
+	 * the plugin's primary path (the classic Add/Edit Term screen — this
+	 * CPT now forces the classic editor since REST/Gutenberg is disabled,
+	 * see class-cpt.php) this now calls `wp_die()` to genuinely halt
+	 * execution before any row is written: zero duplicate post is created.
+	 * Automated/AJAX-driven paths (Quick Edit inline-save, the
+	 * heartbeat/autosave endpoint) deliberately keep the older
+	 * non-disruptive Draft-downgrade behavior instead of wp_die(), because
+	 * a hard stop there would surface as a broken/corrupted inline response
+	 * rather than a readable admin notice — this is the "does not corrupt
+	 * autosaves/revisions" requirement from the brief.
+	 *
+	 * Autosaves and revisions never reach this method in the first place:
+	 * WordPress stores both as `post_type = 'revision'` rows, which fail
+	 * the post_type check below regardless of the DOING_AUTOSAVE check.
 	 *
 	 * @param array $data    Slashed post data about to be saved.
 	 * @param array $postarr Raw $_POST-like array, includes ID for edits.
 	 * @return array
 	 */
 	public static function block_exact_duplicate_on_save( $data, $postarr ) {
-		if ( VAID_GLOSSARY_CPT !== $data['post_type'] || 'auto-draft' === $data['post_status'] ) {
+		if ( VAID_GLOSSARY_CPT !== $data['post_type'] ) {
+			return $data;
+		}
+
+		if ( in_array( $data['post_status'], array( 'auto-draft', 'trash' ), true ) ) {
+			return $data;
+		}
+
+		if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
 			return $data;
 		}
 
@@ -113,17 +143,33 @@ class Duplicate_Guard {
 		$index = self::get_existing_title_index( $post_id );
 		$key   = vaid_glossary_normalize_title( $title );
 
-		if ( isset( $index[ $key ] ) ) {
-			// Revert to draft rather than silently publishing a duplicate;
-			// surface the block via a transient admin notice.
-			$data['post_status'] = 'draft';
+		if ( ! isset( $index[ $key ] ) ) {
+			return $data;
+		}
 
+		// Automated/inline-editing paths: keep the safe, non-disruptive
+		// fallback rather than a hard wp_die() stop.
+		if ( wp_doing_ajax() || ( defined( 'REST_REQUEST' ) && REST_REQUEST ) ) {
+			$data['post_status'] = 'draft';
 			if ( $post_id ) {
 				set_transient( 'vaid_glossary_dup_block_' . get_current_user_id(), $key, 60 );
 			}
+			return $data;
 		}
 
-		return $data;
+		// Primary interactive path: true hard block. Execution stops here;
+		// wp_insert_post() never reaches its DB write, so no duplicate row
+		// is ever created.
+		set_transient( 'vaid_glossary_dup_block_' . get_current_user_id(), $key, 60 );
+
+		wp_die(
+			esc_html__( 'This term title already exists in the glossary. No new entry was created. Go back and rename it, or edit the existing term instead.', 'vaid-anthropology-glossary' ),
+			esc_html__( 'Duplicate glossary term', 'vaid-anthropology-glossary' ),
+			array(
+				'response'  => 400,
+				'back_link' => true,
+			)
+		);
 	}
 
 	public static function maybe_show_block_notice() {

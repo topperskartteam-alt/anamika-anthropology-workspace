@@ -17,6 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	<div class="vaid-glossary-search">
 		<label class="screen-reader-text" for="vaid-glossary-search-input"><?php esc_html_e( 'Search for a term', 'vaid-anthropology-glossary' ); ?></label>
 		<div class="vaid-glossary-search__field">
+			<?php /* FIGMA SEARCH ICON = PENDING EXACT ASSET — this is a substitute inline SVG, not Figma's real icon asset (baf7a.svg), which was never persisted to a permanent local file. Technically and accessibly sound (aria-hidden, decorative, labelled input), but treat pixel-exact icon fidelity as an open production blocker until the real asset is retrieved or an owner-approved equivalent is confirmed. See BUILD-REPORT.md. */ ?>
 			<svg class="vaid-glossary-search__icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
 				<circle cx="7" cy="7" r="5.25" fill="none" stroke="currentColor" stroke-width="1.5"></circle>
 				<line x1="11" y1="11" x2="15" y2="15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></line>

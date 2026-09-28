@@ -3,7 +3,7 @@
  * Plugin Name:       VAID Anthropology Glossary
  * Plugin URI:        https://vaidsics.example/
  * Description:       Pilot build of the VAID Anthropology & UPSC Glossary — admin-managed glossary terms with a Figma-faithful public Hub (hero, search, A-Z navigation, term cards).
- * Version:           0.4.0
+ * Version:           0.4.1
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            VAID
@@ -24,7 +24,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 // Constants
 // ---------------------------------------------------------------------
 
-define( 'VAID_GLOSSARY_VERSION', '0.4.0' );
+define( 'VAID_GLOSSARY_VERSION', '0.4.1' );
 define( 'VAID_GLOSSARY_PLUGIN_FILE', __FILE__ );
 define( 'VAID_GLOSSARY_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'VAID_GLOSSARY_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -65,13 +65,17 @@ register_activation_hook( __FILE__, __NAMESPACE__ . '\\activate_plugin' );
 register_deactivation_hook( __FILE__, __NAMESPACE__ . '\\deactivate_plugin' );
 
 /**
- * Activation: register CPT so rewrite rules (none, since rewrite=>false) are
- * known, create the import-batch log table, seed default options, add caps.
+ * Activation: register CPT/taxonomy, create the import-batch log table,
+ * seed default options, add capabilities.
  *
- * Deliberately does NOT call flush_rewrite_rules() on the frontend request
- * path — it only runs once, here, on explicit activation, and the CPT is
- * registered with rewrite => false so there is nothing meaningful to flush
- * beyond WordPress's own one-time activation flush.
+ * v0.4.1 red-team correction: no flush_rewrite_rules() call anywhere in
+ * this plugin. The CPT and taxonomy are both registered with
+ * `rewrite => false` and `has_archive => false` — this plugin owns no
+ * rewrite rule of any kind, so there is nothing for it to flush, on
+ * activation, deactivation, or any frontend request. (v0.4.0 called
+ * flush_rewrite_rules() here "to be safe"; that could not be justified
+ * against a real registered rewrite, so it was removed rather than kept
+ * as an unnecessary full rewrite-rules rebuild.)
  */
 function activate_plugin() {
 	CPT::register_post_type();
@@ -88,17 +92,15 @@ function activate_plugin() {
 	}
 
 	Capabilities::add_capabilities();
-
-	flush_rewrite_rules();
 }
 
 /**
- * Deactivation: preserve all data. Only clears the rewrite flush flag.
- * No option/meta/post deletion happens here by design (see uninstall.php
- * for the equally non-destructive uninstall behaviour).
+ * Deactivation: preserve all data. No rewrite flush (see activate_plugin()
+ * docblock) and no option/meta/post deletion (see uninstall.php for the
+ * equally non-destructive uninstall behaviour).
  */
 function deactivate_plugin() {
-	flush_rewrite_rules();
+	// Intentionally empty — deactivation must not remove or alter any data.
 }
 
 // ---------------------------------------------------------------------

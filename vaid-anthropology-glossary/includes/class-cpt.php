@@ -26,9 +26,21 @@ class CPT {
 	/**
 	 * Register the vaid_glossary_term CPT.
 	 *
-	 * Visibility flags match the Round-3 control-room spec exactly:
-	 * public/publicly_queryable/has_archive/rewrite all false,
-	 * show_ui/show_in_menu/show_in_rest true, exclude_from_search true.
+	 * v0.4.1 red-team correction: `show_in_rest` is now `false`. WordPress's
+	 * default REST posts controller does NOT gate anonymous read access on
+	 * the `public` argument — a non-public, non-publicly-queryable CPT with
+	 * `show_in_rest => true` still exposes every *published* record (plus
+	 * any meta registered with `show_in_rest => true`) to anonymous users
+	 * at `/wp-json/wp/v2/{rest_base}`, with no capability check on GET
+	 * requests for published content. That directly contradicts the "one
+	 * canonical Hub, no alternate public term endpoints" goal, so REST is
+	 * off entirely in v0.4.1. Nothing in this plugin's actual admin UI
+	 * depends on REST — the Add/Edit metabox is a classic $_POST form, and
+	 * with `show_in_rest => false` the post edit screen simply falls back
+	 * to the classic editor for this CPT, which is what this plugin's UI
+	 * already assumes. If a future feature genuinely needs REST access, it
+	 * should register a purpose-built route with an explicit
+	 * `permission_callback`, not flip this flag back on.
 	 */
 	public static function register_post_type() {
 		$labels = array(
@@ -57,8 +69,7 @@ class CPT {
 				'show_ui'             => true,
 				'show_in_menu'        => false, // Custom top-level menu is added by Admin_Menu, this CPT screen is attached to it.
 				'show_in_admin_bar'   => true,
-				'show_in_rest'        => true,
-				'rest_base'           => 'vaid-glossary-terms',
+				'show_in_rest'        => false, // See docblock above — anonymous REST read exposure risk on a non-public CPT.
 				'has_archive'         => false,
 				'rewrite'             => false,
 				'query_var'           => false,
@@ -92,7 +103,7 @@ class CPT {
 				'publicly_queryable' => false,
 				'show_ui'           => true,
 				'show_in_menu'      => false,
-				'show_in_rest'      => true,
+				'show_in_rest'      => false, // Same REST-exposure reasoning as the CPT itself — see register_post_type().
 				'hierarchical'      => true,
 				'rewrite'           => false,
 				'query_var'         => false,
