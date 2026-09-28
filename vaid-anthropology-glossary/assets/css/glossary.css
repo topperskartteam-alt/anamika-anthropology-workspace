@@ -1,0 +1,318 @@
+/*
+ * VAID Anthropology Glossary — Hub styles.
+ *
+ * Colors and typography are the exact tokens extracted from Figma in
+ * Round 1 (get_variable_defs on nodes 365:4538 / 453:8439). No new font
+ * files are loaded here — Source Serif 4 / Inter are expected to already
+ * be available on the live theme; safe system-font fallbacks are listed
+ * after them in case they are not.
+ *
+ * Responsive behaviour deliberately does NOT hard-break at the Figma
+ * frame widths (402 / 1440) — those are QA targets, not CSS breakpoints,
+ * per the Round-3 control-room correction. Layout instead uses a fluid
+ * CSS Grid (auto-fit/minmax) derived from the verified desktop geometry
+ * (3 x 400px cards, ~20px gap, ~100px outer padding on a 1440 frame),
+ * so it transitions smoothly across 1440/1366/1024/768/402/390/360 and
+ * everything between, without special-casing any one width.
+ */
+
+.vaid-glossary {
+	--vaid-glossary-primary: #1277ad;
+	--vaid-glossary-secondary: #112e5a;
+	--vaid-glossary-accent: #ffe52d;
+	--vaid-glossary-bg: #f6f8fb;
+	--vaid-glossary-surface: #ffffff;
+	--vaid-glossary-text: #1d1d1f;
+	--vaid-glossary-gray-text: #43454a;
+	--vaid-glossary-muted: #64748b;
+	--vaid-glossary-border: #cbd5e1;
+
+	--vaid-glossary-font-serif: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+	--vaid-glossary-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+
+	/* ~100px desktop outer padding at the 1440 frame, scaling fluidly down. */
+	--vaid-glossary-gutter: clamp(20px, 4vw, 100px);
+
+	max-width: 1440px;
+	margin: 0 auto;
+	background: var(--vaid-glossary-bg);
+	color: var(--vaid-glossary-text);
+	font-family: var(--vaid-glossary-font-sans);
+}
+
+.vaid-glossary * {
+	box-sizing: border-box;
+}
+
+/* ---------------------------------------------------------------- */
+/* Breadcrumb                                                        */
+/* ---------------------------------------------------------------- */
+
+.vaid-glossary-breadcrumb {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 20px var(--vaid-glossary-gutter) 4px;
+	background: var(--vaid-glossary-surface);
+	font-size: 12px;
+	line-height: 1.6;
+	letter-spacing: 0.01em;
+}
+
+.vaid-glossary-breadcrumb a {
+	color: var(--vaid-glossary-primary);
+	text-decoration: none;
+}
+
+.vaid-glossary-breadcrumb a:hover,
+.vaid-glossary-breadcrumb a:focus-visible {
+	text-decoration: underline;
+}
+
+.vaid-glossary-breadcrumb [aria-current='page'] {
+	color: var(--vaid-glossary-muted);
+}
+
+/* ---------------------------------------------------------------- */
+/* Hero                                                               */
+/* ---------------------------------------------------------------- */
+
+.vaid-glossary-hero {
+	background: var(--vaid-glossary-secondary);
+	padding: clamp(28px, 6vw, 64px) var(--vaid-glossary-gutter);
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 20px;
+	text-align: center;
+}
+
+.vaid-glossary-hero__title {
+	margin: 0;
+	font-family: var(--vaid-glossary-font-serif);
+	font-weight: 600;
+	font-size: clamp(28px, 5vw, 48px);
+	line-height: 1.32;
+	letter-spacing: 0.01em;
+	color: var(--vaid-glossary-accent);
+}
+
+.vaid-glossary-hero__subtitle {
+	margin: 0;
+	font-weight: 500;
+	font-size: 16px;
+	line-height: 1.52;
+	color: var(--vaid-glossary-surface);
+}
+
+/* ---------------------------------------------------------------- */
+/* Search (Figma Search Field master 7:220, State=Default)           */
+/* ---------------------------------------------------------------- */
+
+.vaid-glossary-search {
+	width: 100%;
+	max-width: 560px;
+}
+
+.vaid-glossary-search__field {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	width: 100%;
+	height: 45px;
+	padding: 12px 14px;
+	background: var(--vaid-glossary-surface);
+	border: 1px solid #d4d4d4;
+	border-radius: 999px;
+}
+
+.vaid-glossary-search__field:focus-within {
+	outline: 2px solid var(--vaid-glossary-primary);
+	outline-offset: 2px;
+}
+
+.vaid-glossary-search__icon {
+	flex: 0 0 16px;
+	color: #727272;
+}
+
+.vaid-glossary-search__input {
+	flex: 1 1 auto;
+	min-width: 0;
+	border: 0;
+	outline: none;
+	background: transparent;
+	font-family: var(--vaid-glossary-font-sans);
+	font-size: 15px;
+	color: var(--vaid-glossary-text);
+}
+
+.vaid-glossary-search__input::placeholder {
+	color: #727272;
+}
+
+.vaid-glossary-search__clear {
+	flex: 0 0 auto;
+	border: 0;
+	background: transparent;
+	color: var(--vaid-glossary-muted);
+	font-size: 18px;
+	line-height: 1;
+	cursor: pointer;
+	padding: 4px;
+}
+
+.vaid-glossary-search__clear:focus-visible,
+.vaid-glossary-az__tab:focus-visible,
+.vaid-glossary-breadcrumb a:focus-visible {
+	outline: 2px solid var(--vaid-glossary-primary);
+	outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------- */
+/* A-Z navigation (Figma Tab Item master 7:62)                       */
+/* ---------------------------------------------------------------- */
+
+.vaid-glossary-az {
+	background: var(--vaid-glossary-secondary);
+	overflow-x: auto;
+	-webkit-overflow-scrolling: touch;
+}
+
+.vaid-glossary-az__list {
+	list-style: none;
+	display: flex;
+	margin: 0;
+	padding: 20px var(--vaid-glossary-gutter);
+	gap: 4px;
+}
+
+.vaid-glossary-az__item {
+	flex: 0 0 auto;
+}
+
+.vaid-glossary-az__tab {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	min-width: 38px;
+	padding: 8px 4px 0;
+	background: transparent;
+	border: 0;
+	cursor: pointer;
+	font-family: var(--vaid-glossary-font-sans);
+	font-weight: 500;
+	font-size: 16px;
+	line-height: 1.52;
+	color: var(--vaid-glossary-surface);
+}
+
+.vaid-glossary-az__tab::after {
+	content: '';
+	display: block;
+	width: 100%;
+	height: 2.5px;
+	border-radius: 2px;
+	background: transparent;
+}
+
+/* State=Active (Figma 7:63) — only state Figma defines besides Inactive.
+   No third "disabled" variant exists, so a zero-result letter keeps this
+   same Active look; only the results area communicates "no terms". */
+.vaid-glossary-az__tab[aria-pressed='true']::after {
+	background: var(--vaid-glossary-accent);
+}
+
+/* ---------------------------------------------------------------- */
+/* Term card grid + card (Figma Term Entry component 365:4400)       */
+/* ---------------------------------------------------------------- */
+
+.vaid-glossary-list {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+	gap: 20px;
+	padding: 40px var(--vaid-glossary-gutter) 64px;
+}
+
+.vaid-glossary-card {
+	border: 1px solid var(--vaid-glossary-border);
+	padding: 12px;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	background: var(--vaid-glossary-surface);
+}
+
+.vaid-glossary-card__title {
+	margin: 0;
+	font-family: var(--vaid-glossary-font-serif);
+	font-weight: 600;
+	font-size: 24px;
+	line-height: 1.32;
+	letter-spacing: 0.01em;
+	color: var(--vaid-glossary-primary);
+}
+
+.vaid-glossary-card__divider {
+	margin: 0;
+	border: 0;
+	border-top: 1px solid var(--vaid-glossary-border);
+}
+
+.vaid-glossary-card__callout {
+	padding: 12px 8px;
+	border-radius: 6px;
+}
+
+.vaid-glossary-card__eyebrow {
+	margin: 0 0 4px;
+	font-size: 12px;
+	line-height: 1.6;
+	letter-spacing: 0.01em;
+	text-transform: uppercase;
+	color: var(--vaid-glossary-muted);
+}
+
+.vaid-glossary-card__definition {
+	margin: 0;
+	font-weight: 500;
+	font-size: 16px;
+	line-height: 1.52;
+	color: var(--vaid-glossary-gray-text);
+}
+
+/* ---------------------------------------------------------------- */
+/* No-results (minimal text only — no illustrated empty state exists) */
+/* ---------------------------------------------------------------- */
+
+.vaid-glossary-no-results {
+	grid-column: 1 / -1;
+	padding: 24px 0;
+	font-size: 16px;
+	line-height: 1.4;
+	color: var(--vaid-glossary-muted);
+	text-align: center;
+}
+
+/* ---------------------------------------------------------------- */
+/* Accessibility helpers                                             */
+/* ---------------------------------------------------------------- */
+
+.screen-reader-text {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip: rect(1px, 1px, 1px, 1px);
+	white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.vaid-glossary * {
+		scroll-behavior: auto !important;
+		transition: none !important;
+		animation: none !important;
+	}
+}
