@@ -3,6 +3,14 @@
 Status: **BLOCKED** on the public network smoke test. Browser engine capability
 was separately confirmed offline. See verdicts below.
 
+> **Round 2 update (see bottom of doc for full detail):** re-checked after
+> the owner reported the Network Access setting was updated. The three
+> authorized URLs were re-tested and are **still blocked** with the same
+> `403 CONNECT` policy denial, and a fresh proxy-status check shows the same
+> package-registries-only allowlist as Round 1. Verdict remains
+> **BLOCKED**. Jump to "Round 2 — Continuation After Reported Network
+> Unlock" below.
+
 ## 1. Network access verdict
 
 **BLOCKED at the environment egress policy**, before any request reaches
@@ -182,4 +190,126 @@ commit adds only this report — no code, no secrets, no generated output.
 
 ---
 
-`VAID CLOUD BROWSER FOUNDATION = BLOCKED — vaidsics.com (and public internet generally) is denied by this Claude Code cloud environment's network-access policy at the egress proxy (403 on CONNECT); fix is an environment-settings change (Network access → raise access level or add vaidsics.com to allowed domains), not a code/repo change.`
+## Round 2 — Continuation After Reported Network Unlock
+
+The owner reported that the environment's Network Access setting had been
+updated and that this task was now running in a "new VAID Cloud Browser
+cloud environment." This round performed only the minimal reachability
+recheck instructed, then stopped.
+
+### 1. Network verdict (Round 2)
+
+**Still BLOCKED — identical failure mode to Round 1.**
+
+Minimal reachability check against the three authorized URLs:
+
+| URL | HTTP status | Final URL | Redirects | Failure |
+|---|---|---|---|---|
+| `https://vaidsics.com/anthropology/` | none (000) | unchanged | 0 | `curl: (56) CONNECT tunnel failed, response 403` |
+| `https://vaidsics.com/anthropology/mains-pyq/` | none (000) | unchanged | 0 | `curl: (56) CONNECT tunnel failed, response 403` |
+| `https://vaidsics.com/anthropology/optional-coaching/` | none (000) | unchanged | 0 | `curl: (56) CONNECT tunnel failed, response 403` |
+
+No redirect chain was ever reached — the block happens at the egress proxy's
+`CONNECT` step, before TLS/HTTP to the origin.
+
+A fresh check of the proxy status endpoint (`$HTTPS_PROXY/__agentproxy/status`,
+new proxy port this session, confirming this really is a fresh
+environment/container) shows:
+- `recentRelayFailures` records three consecutive
+  `connect_rejected` / `"gateway answered 403 to CONNECT (policy denial or
+  upstream failure)"` entries for `vaidsics.com:443`, timestamped this round.
+- `noProxy` (the effective allowlist) is **unchanged from Round 1** — it
+  still lists only package-manager and Anthropic API hosts (npm, PyPI,
+  crates.io, Go proxy, `api.anthropic.com` family, plus private/link-local
+  ranges). No public web domain, and specifically no `vaidsics.com`, is in
+  it.
+- A control request to `https://example.com/` was also denied identically,
+  confirming the block is still the environment's default-deny general
+  egress policy, not a `vaidsics.com`-specific rule.
+
+Per the continuation brief's instruction, network retries stopped
+immediately after this one recheck (3 target URLs + 1 control request — no
+repeated calls).
+
+**Conclusion:** whatever change the owner made to the environment's Network
+Access setting has not taken effect for this session/container — either it
+was applied to a different environment, the change hasn't propagated to a
+freshly spun-up container yet, or the setting needs `vaidsics.com`
+specifically added rather than a general level change. Steps 2-4 of the
+continuation brief (real-site Playwright proof, desktop/mobile inspection,
+`tools/vaid-browser-audit/` utility) are gated on this passing and were
+**not** attempted, per the brief's explicit "if network passes" / "ONLY
+after the real-site proof succeeds" gating and the standing hard constraint
+against claiming browser automation works before the domain is reachable.
+
+### 2. Browser verdict (Round 2)
+
+Unchanged from Round 1: Chromium (`/opt/pw-browsers/chromium`) and
+Playwright `1.56.1` (global, under `/opt/node22/lib/node_modules`) are
+present in this environment too and remain proven-capable offline. Not
+re-tested against the real site since network access did not pass.
+
+### 3. Real-site evidence
+
+None collected — network did not pass (see §1).
+
+### 4. Desktop/mobile evidence
+
+None collected against the real site — network did not pass (see §1). No
+new local proof was re-run since the engine capability was already proven
+in Round 1 and the runtime environment (Chromium/Playwright paths) is
+confirmed unchanged in this container.
+
+### 5. Tooling created
+
+None. `tools/vaid-browser-audit/` was **not** created this round — Step 3 of
+the continuation brief explicitly gates it on the real-site proof
+succeeding (Step 2), which did not run.
+
+### 6. Exact reusable command
+
+Not applicable yet — no tooling exists to run. Once network access is
+confirmed working, the reusable check for a future session is:
+
+```bash
+curl -sS -o /dev/null -w "status:%{http_code} final:%{url_effective}\n" \
+  --max-time 20 -L "https://vaidsics.com/anthropology/"
+```
+
+If that returns a real HTTP status (not a `CONNECT tunnel failed`
+curl error), Steps 2-4 of the continuation brief can proceed.
+
+### 7. Files changed (Round 2)
+
+- `docs/VAID_CLOUD_BROWSER_FOUNDATION.md` — this Round 2 section appended.
+
+No code, tooling, or screenshots were added this round.
+
+### 8. Git branch + commit (Round 2)
+
+Branch: `claude/loving-fermi-7bt015` (same branch as Round 1, per task
+instructions — no new branch created). Commit adds only this documentation
+update.
+
+### 9. Remaining blocker for authenticated WP Admin automation
+
+Unrelated to and unaffected by this round's finding: WP Admin login, Fluent
+Forms/lead data access, and any authenticated WordPress automation remain
+categorically out of scope for this task by explicit hard constraint ("No
+WP Admin login," "READ ONLY," no PII/CSV handling), independent of whether
+public network egress is unblocked. That work needs a deliberately
+separate, explicitly authorized round with real WP credentials — it is not
+something the network fix in §1 will unlock.
+
+### 10. Security notes (Round 2)
+
+- No credentials, cookies, auth state, or PII were requested or handled.
+- No WordPress writes, no WP Admin login, no Figma writes, no secret
+  storage — none of Step 2/3's browser or tooling work ran, so there was no
+  surface for any of these to occur on.
+- Only read-only `curl` reachability probes and a proxy-status read were
+  performed against the network.
+
+---
+
+`VAID CLOUD BROWSER FOUNDATION = BLOCKED — vaidsics.com (and public internet generally) is still denied by this Claude Code cloud environment's network-access policy at the egress proxy (403 on CONNECT), even after the reported Network Access update; the effective allowlist in this session still contains only package-registry/Anthropic API hosts. The owner needs to re-check that the Network Access change was applied to the environment this session is actually running in (environment menu → Edit → Network access), and/or add vaidsics.com explicitly to its allowed domains rather than relying on a general access-level change, then a fresh session should re-run the reachability check in §6 above.`
