@@ -1,0 +1,11 @@
+{
+  "name": "vaid-browser-audit",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Read-only Playwright/Chromium audit utility for public vaidsics.com/anthropology/ pages.",
+  "main": "audit.js",
+  "scripts": {
+    "audit": "node audit.js"
+  },
+  "license": "UNLICENSED"
+}

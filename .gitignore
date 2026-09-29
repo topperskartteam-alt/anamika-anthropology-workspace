@@ -1,0 +1,11 @@
+# VAID browser audit generated output (screenshots, JSON reports)
+tools/vaid-browser-audit/out/
+tools/vaid-browser-audit/**/out/
+
+# Node
+node_modules/
+
+# Playwright / browser artifacts
+/test-results/
+/playwright-report/
+/playwright/.cache/
