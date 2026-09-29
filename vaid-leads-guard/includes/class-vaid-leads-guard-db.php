@@ -6,6 +6,25 @@
  * email, or name column exists anywhere in this table. Only
  * non-reversible HMAC fingerprints, form/entry IDs already present in
  * Fluent Forms' own tables, a time delta, and a classification label.
+ *
+ * v1.1.0 schema changes (see ARCHITECTURE.md "Concurrency" and "Schema
+ * v1.1.0"):
+ *   - UNIQUE KEY (form_id, entry_id): makes a duplicate observation row
+ *     for the same real submission impossible at the database level,
+ *     not just by application logic. This matters because v0.1.1 now
+ *     registers on two Fluent Forms hook names for the same event (see
+ *     the observer) — on a Fluent Forms version where both fire for one
+ *     submission, this constraint is what keeps that safe.
+ *   - composite (fingerprint, created_at) indexes replacing the v0.1.0
+ *     single-column fingerprint indexes: the actual query in
+ *     find_prior_by_fingerprint() is "WHERE fingerprint = X AND
+ *     created_at < Y ORDER BY created_at DESC LIMIT 1", which a
+ *     composite index can satisfy as a single index range scan with no
+ *     filesort; two separate single-column indexes cannot be merged by
+ *     MySQL for this access pattern anywhere near as efficiently.
+ * This plugin has never been deployed, so there is no live data to
+ * migrate — this is a pre-launch schema correction, not a production
+ * migration.
  */
 
 if ( ! defined( 'ABSPATH' ) && ! defined( 'VAID_LEADS_GUARD_TEST_MODE' ) ) {
@@ -20,6 +39,19 @@ class VAID_Leads_Guard_DB {
 	public static function table_name() {
 		global $wpdb;
 		return $wpdb->prefix . 'vaid_leads_guard_observations';
+	}
+
+	/**
+	 * Pure version-comparison helper (no WordPress dependency), so the
+	 * upgrade-gate logic used by the plugin bootstrap is independently
+	 * unit-testable. Mirrors `version_compare( $stored, $target, '<' )`.
+	 *
+	 * @param string $stored_version  Version currently recorded in options (may be '0' if never set).
+	 * @param string $target_version  Version this code expects.
+	 * @return bool True if install()/dbDelta() should run.
+	 */
+	public static function needs_upgrade( $stored_version, $target_version ) {
+		return version_compare( (string) $stored_version, (string) $target_version, '<' );
 	}
 
 	/**
@@ -50,11 +82,10 @@ class VAID_Leads_Guard_DB {
 			action VARCHAR(20) NOT NULL DEFAULT 'shadow_only',
 			created_at DATETIME NOT NULL,
 			PRIMARY KEY  (id),
-			KEY form_id (form_id),
-			KEY entry_id (entry_id),
-			KEY phone_fingerprint (phone_fingerprint),
-			KEY email_fingerprint (email_fingerprint),
-			KEY pair_fingerprint (pair_fingerprint),
+			UNIQUE KEY form_entry (form_id, entry_id),
+			KEY phone_fp_created (phone_fingerprint, created_at),
+			KEY email_fp_created (email_fingerprint, created_at),
+			KEY pair_fp_created (pair_fingerprint, created_at),
 			KEY classification (classification),
 			KEY created_at (created_at)
 		) {$charset_collate};";
@@ -115,7 +146,10 @@ class VAID_Leads_Guard_DB {
 			'classification'      => VAID_Leads_Guard_Classifier::NEW_IDENTITY,
 			'is_cross_form'       => 0,
 			'action'              => 'shadow_only',
-			'created_at'          => current_time( 'mysql' ),
+			// UTC, matching the observer's own timestamp basis — see
+			// class-vaid-leads-guard-observer.php for why. Only used if
+			// a caller omits created_at; the observer always supplies it.
+			'created_at'          => current_time( 'mysql', true ),
 		);
 
 		$data = wp_parse_args( $row, $defaults );

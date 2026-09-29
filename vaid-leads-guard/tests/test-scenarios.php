@@ -1,45 +1,14 @@
 <?php
 require_once __DIR__ . '/bootstrap.php';
+require_once __DIR__ . '/helpers/fake-observation-store.php';
 
 /**
  * End-to-end scenario tests that exercise the same decision path the
  * observer uses (normalize -> fingerprint -> look up prior -> classify),
  * against an in-memory fake of the observations table, so no WordPress
- * or database is required.
+ * or database is required. See tests/helpers/fake-observation-store.php
+ * for the shared fake (also used by test-concurrency.php).
  */
-
-class Fake_Observation_Store {
-	private $rows = array();
-
-	public function insert( $fingerprint, $form_id, $entry_id, $timestamp ) {
-		$this->rows[] = array(
-			'fingerprint' => $fingerprint,
-			'form_id'     => $form_id,
-			'entry_id'    => $entry_id,
-			'timestamp'   => $timestamp,
-		);
-	}
-
-	/** Mirrors VAID_Leads_Guard_DB::find_prior_by_fingerprint: most recent prior match, any form. */
-	public function find_prior( $fingerprint, $before_timestamp ) {
-		$candidates = array_filter(
-			$this->rows,
-			function ( $row ) use ( $fingerprint, $before_timestamp ) {
-				return $row['fingerprint'] === $fingerprint && $row['timestamp'] < $before_timestamp;
-			}
-		);
-
-		if ( empty( $candidates ) ) {
-			return null;
-		}
-
-		usort( $candidates, function ( $a, $b ) {
-			return $b['timestamp'] <=> $a['timestamp'];
-		} );
-
-		return $candidates[0];
-	}
-}
 
 function simulate_submission( Fake_Observation_Store $store, $secret, $form_id, $entry_id, $phone_raw, $timestamp ) {
 	$phone = VAID_Leads_Guard_Normalizer::normalize_phone( $phone_raw );

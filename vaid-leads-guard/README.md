@@ -3,10 +3,17 @@
 Shadow-mode duplicate-submission observer for the two Fluent Forms lead
 forms on `vaidsics.com/anthropology`.
 
-**v0.1.0 is shadow mode only.** It observes and logs likely duplicate
+**v0.1.x is shadow mode only.** It observes and logs likely duplicate
 submissions for reporting. It never blocks, gates, merges, deletes, or
 alters a real Fluent Forms entry, and it makes no changes to WordPress,
 forms, notifications, redirects, or Meta events.
+
+v0.1.1 is a red-team repair pass over v0.1.0 — same architecture, ten
+defects found and fixed or explicitly documented as bounded/accepted
+limitations. See `ARCHITECTURE.md` for the full defect table and
+`CHANGELOG.md` for the summary. Deployment recommendation: **PILOT-SAFE**,
+with one precondition (confirm the live site's Fluent Forms version
+before activating) — see ARCHITECTURE.md "Deployment recommendation".
 
 ## Why this exists
 
@@ -28,7 +35,7 @@ before anything is ever blocked.
 
 ## Installation (not yet deployed)
 
-1. Upload `vaid-leads-guard-v0.1.0.zip` via **Plugins → Add New → Upload Plugin**.
+1. Upload `vaid-leads-guard-v0.1.1.zip` via **Plugins → Add New → Upload Plugin**.
 2. Activate. This creates one new database table
    (`{prefix}vaid_leads_guard_observations`) and a per-install HMAC
    secret. No existing data is touched.
@@ -56,9 +63,13 @@ numbers, email addresses, or names — only:
 
 The admin report and CSV export show only a short (10-character)
 fingerprint prefix — never the fingerprint in full, and never the
-underlying phone/email.
+underlying phone/email. Note: `entry_id`/`prior_entry_id` are references
+into Fluent Forms' own (PII-bearing) entries table — fine for an admin
+who already has Fluent Forms access, but see ARCHITECTURE.md "Privacy
+verdict" before treating this export as safe to hand to anyone who
+doesn't already have that access.
 
-## What v0.1.0 does NOT do
+## What v0.1.x does NOT do
 
 - Does not block any submission
 - Does not gate, delay, or fail Fluent Forms' own submission-creation

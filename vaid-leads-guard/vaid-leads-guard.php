@@ -2,26 +2,29 @@
 /**
  * Plugin Name:       VAID Leads Guard
  * Plugin URI:        https://vaidsics.com/anthropology/
- * Description:       Shadow-mode duplicate-submission observer for Fluent Forms leads on vaidsics.com/anthropology. v0.1 observes and logs likely duplicates; it never blocks, merges, or alters submissions.
- * Version:           0.1.0
+ * Description:       Shadow-mode duplicate-submission observer for Fluent Forms leads on vaidsics.com/anthropology. Observes and logs likely duplicates; it never blocks, merges, or alters submissions.
+ * Version:           0.1.1
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            VAID
  * License:           GPL-2.0-or-later
  * Text Domain:       vaid-leads-guard
  *
- * IMPORTANT: v0.1.0 is SHADOW MODE ONLY. It never blocks, gates, merges,
+ * IMPORTANT: v0.1.x is SHADOW MODE ONLY. It never blocks, gates, merges,
  * or deletes a Fluent Forms submission. It observes already-inserted
- * entries (post-insert hook) and logs a duplicate-likelihood
+ * entries (post-insert hooks only) and logs a duplicate-likelihood
  * classification for reporting purposes only.
+ *
+ * v0.1.1 is a red-team repair pass over v0.1.0. See CHANGELOG.md for
+ * the defect list and ARCHITECTURE.md for full evidence/rationale.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit; // No direct access.
 }
 
-define( 'VAID_LEADS_GUARD_VERSION', '0.1.0' );
-define( 'VAID_LEADS_GUARD_DB_VERSION', '1.0.0' );
+define( 'VAID_LEADS_GUARD_VERSION', '0.1.1' );
+define( 'VAID_LEADS_GUARD_DB_VERSION', '1.1.0' );
 define( 'VAID_LEADS_GUARD_FILE', __FILE__ );
 define( 'VAID_LEADS_GUARD_DIR', plugin_dir_path( __FILE__ ) );
 define( 'VAID_LEADS_GUARD_URL', plugin_dir_url( __FILE__ ) );
@@ -32,6 +35,7 @@ define( 'VAID_LEADS_GUARD_OPTION_DB_VERSION', 'vaid_leads_guard_db_version' );
 require_once VAID_LEADS_GUARD_DIR . 'includes/class-vaid-leads-guard-normalizer.php';
 require_once VAID_LEADS_GUARD_DIR . 'includes/class-vaid-leads-guard-classifier.php';
 require_once VAID_LEADS_GUARD_DIR . 'includes/class-vaid-leads-guard-fingerprint.php';
+require_once VAID_LEADS_GUARD_DIR . 'includes/class-vaid-leads-guard-csv-sanitizer.php';
 require_once VAID_LEADS_GUARD_DIR . 'includes/class-vaid-leads-guard-form-map.php';
 require_once VAID_LEADS_GUARD_DIR . 'includes/class-vaid-leads-guard-settings.php';
 require_once VAID_LEADS_GUARD_DIR . 'includes/class-vaid-leads-guard-db.php';
@@ -77,7 +81,8 @@ register_deactivation_hook( VAID_LEADS_GUARD_FILE, 'vaid_leads_guard_deactivate'
  * activation cannot fatal on a site where FF is missing/updating.
  */
 function vaid_leads_guard_bootstrap() {
-	if ( version_compare( get_option( VAID_LEADS_GUARD_OPTION_DB_VERSION, '0' ), VAID_LEADS_GUARD_DB_VERSION, '<' ) ) {
+	$stored_db_version = get_option( VAID_LEADS_GUARD_OPTION_DB_VERSION, '0' );
+	if ( VAID_Leads_Guard_DB::needs_upgrade( $stored_db_version, VAID_LEADS_GUARD_DB_VERSION ) ) {
 		VAID_Leads_Guard_DB::install();
 	}
 

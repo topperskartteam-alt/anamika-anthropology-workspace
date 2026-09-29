@@ -13,7 +13,9 @@ define( 'VAID_LEADS_GUARD_TEST_MODE', true );
 require_once __DIR__ . '/../includes/class-vaid-leads-guard-normalizer.php';
 require_once __DIR__ . '/../includes/class-vaid-leads-guard-classifier.php';
 require_once __DIR__ . '/../includes/class-vaid-leads-guard-fingerprint.php';
+require_once __DIR__ . '/../includes/class-vaid-leads-guard-csv-sanitizer.php';
 require_once __DIR__ . '/../includes/class-vaid-leads-guard-form-map.php';
+require_once __DIR__ . '/../includes/class-vaid-leads-guard-db.php';
 
 /**
  * Tiny assertion harness — deterministic, dependency-free, exits

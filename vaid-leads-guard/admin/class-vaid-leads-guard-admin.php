@@ -275,23 +275,31 @@ class VAID_Leads_Guard_Admin {
 		);
 
 		foreach ( $rows as $row ) {
-			fputcsv(
-				$out,
-				array(
-					$row->entry_id,
-					$row->form_id,
-					$row->prior_entry_id,
-					$row->prior_form_id,
-					$row->phone_fingerprint ? VAID_Leads_Guard_Fingerprint::short( $row->phone_fingerprint ) : '',
-					$row->email_fingerprint ? VAID_Leads_Guard_Fingerprint::short( $row->email_fingerprint ) : '',
-					$row->match_type,
-					$row->time_delta_seconds,
-					$row->classification,
-					$row->is_cross_form,
-					$row->action,
-					$row->created_at,
-				)
+			$cells = array(
+				$row->entry_id,
+				$row->form_id,
+				$row->prior_entry_id,
+				$row->prior_form_id,
+				$row->phone_fingerprint ? VAID_Leads_Guard_Fingerprint::short( $row->phone_fingerprint ) : '',
+				$row->email_fingerprint ? VAID_Leads_Guard_Fingerprint::short( $row->email_fingerprint ) : '',
+				$row->match_type,
+				$row->time_delta_seconds,
+				$row->classification,
+				$row->is_cross_form,
+				$row->action,
+				$row->created_at,
 			);
+
+			// Every current export column is plugin-generated (numeric
+			// IDs, hex fingerprint prefixes, a small fixed set of
+			// classification/action strings, a MySQL datetime) and none
+			// can begin with a formula-trigger character today — this is
+			// applied generically to every cell regardless, as
+			// defense-in-depth against any future column addition, per
+			// the red-team requirement. See
+			// VAID_Leads_Guard_Csv_Sanitizer for the rationale and its
+			// direct unit tests.
+			fputcsv( $out, VAID_Leads_Guard_Csv_Sanitizer::sanitize_row( $cells ) );
 		}
 
 		fclose( $out );
