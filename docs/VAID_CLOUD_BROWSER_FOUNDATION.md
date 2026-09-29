@@ -1,7 +1,8 @@
 # ANAMIKA 00 — Cloud Browser Foundation
 
-Status: **PASS — public frontend browser automation is proven and reusable
-from this cloud environment.**
+Status: **PASS — public frontend browser automation is proven, hardened,
+and reusable from this cloud environment.** (Hardening pass applied on
+top of the original proof — see §6.)
 
 This document records how public-site Playwright/Chromium automation was
 proven to work from a Claude Code cloud session against the live
@@ -118,7 +119,10 @@ testing.
 - Final URL: `https://vaidsics.com/anthropology/optional-coaching/` (no redirect)
 - HTTP status: `200`
 - Title: `Anthropology Optional Coaching in Delhi | Vaid's ICS`
-- H1: `Score 300+ inAnthropology Optionalwith Vaid Sir`
+- H1: `Score 300+ in Anthropology Optional with Vaid Sir` (originally
+  extracted as `Score 300+ inAnthropology Optionalwith Vaid Sir` via raw
+  `textContent`; fixed by the §6 hardening pass to use rendered-text
+  (`innerText`) semantics)
 - Canonical: `https://vaidsics.com/anthropology/optional-coaching/`
 - Body font-family: `"Plus Jakarta Sans", sans-serif`
 - H1 typography: `"Cormorant Garamond", serif` · 60px · weight 700 · line-height 66px
@@ -141,14 +145,16 @@ during any of this testing.
 
 ## 3. Reusable utility: `tools/vaid-browser-audit/`
 
-A domain-guarded, read-only Playwright/Chromium audit script:
+A scope-guarded, read-only Playwright/Chromium audit script:
 
 ```
 tools/vaid-browser-audit/
-├── audit.js       # the tool
+├── audit.js                          # the tool
 ├── package.json
-├── README.md      # full usage reference
-└── out/           # gitignored — generated JSON reports + screenshots
+├── README.md                         # full usage reference
+├── test/
+│   └── audit-hardening.test.js       # deterministic, network-free tests
+└── out/                               # gitignored — generated JSON reports + screenshots
 ```
 
 ### Exact reusable command
@@ -183,10 +189,25 @@ those exports can be dropped.
 
 ### Security boundary
 
-- **Domain guard is hardcoded in `audit.js`, not a CLI flag**: only URLs
-  starting with `https://vaidsics.com/anthropology/` are accepted. Bare
-  `https://vaidsics.com/` and any other domain are rejected before a
-  browser is even launched (verified in testing — see Phase 4 below).
+- **Scope guard is hardcoded in `audit.js`, not a CLI flag**: both the
+  requested URL and the final top-level URL after navigation must start
+  with `https://vaidsics.com/anthropology/`. A requested URL outside this
+  prefix (e.g. bare `https://vaidsics.com/`, or an unrelated domain) is
+  rejected before a browser is even launched. A redirect or later
+  top-level navigation that would leave this prefix is actively blocked,
+  reported as `ok: false` / `error: "final_url_out_of_scope"`, and no
+  screenshot is taken (verified in testing — see §6 and §7).
+- **This guard restricts top-level navigation only.** It does not, and
+  cannot, restrict third-party subresources the authorized page itself
+  loads (e.g. web fonts from `fonts.gstatic.com`) — those are fetched
+  normally, the same as they would be for anyone else visiting the page.
+- **`--ignore-certificate-errors` / `ignoreHTTPSErrors` genuinely disable
+  TLS certificate validation** inside this tool's ephemeral Chromium
+  process/context (see §2.2) — this is a deliberate cloud-proxy
+  compatibility tradeoff, not a claim that certificates are still
+  verified. It is scoped to that one process/context, discarded when the
+  browser closes at the end of each run, and does not affect any other
+  tool, host, or session.
 - No authentication support of any kind — no login flows, no credential
   handling.
 - No cookies or storage state persist between runs — each invocation opens
@@ -196,10 +217,11 @@ those exports can be dropped.
 - Generated output (`tools/vaid-browser-audit/out/`) is gitignored by
   default — screenshots and JSON reports are local artifacts, not
   committed.
-- The TLS-trust flags described in §2.2 apply only to this tool's own
-  Chromium session talking to this environment's own sanctioned egress
-  proxy — they do not weaken certificate validation for any other tool,
-  host, or session.
+- **This public tool must not be reused unchanged for authenticated WP
+  Admin automation** — it has no login support by design, and its
+  certificate-validation tradeoff is acceptable for read-only public
+  inspection but not for any flow that would carry credentials or session
+  cookies (see §4/ANAMIKA 04).
 
 ## 4. Which future workstreams can use this
 
@@ -223,7 +245,7 @@ authenticated API integration) is required before any admin-side or
 form-submission automation can be attempted. Do not extend this tool with
 login capability without a dedicated secure-auth design.
 
-## 5. Phase 4 safe test-run verification
+## 5. Original safe test-run verification
 
 Run against:
 
@@ -241,3 +263,82 @@ Verified:
   `error` message, no browser launched, exit code 1
 - ✅ No form submitted, no lead event triggered
 - ✅ No PII, cookies, or auth state captured or written anywhere
+
+## 6. Hardening pass (post-proof, pre-`main`)
+
+Applied to commit `ce4a261` on branch `claude/wizardly-darwin-gi1gsy`
+before other workstreams were allowed to depend on this tool. Four fixes:
+
+1. **Final-URL scope guard (P1).** The original tool only validated the
+   *requested* URL. It now also validates the final top-level URL after
+   navigation, and actively blocks (via Playwright request interception,
+   not just after-the-fact detection) any redirect or later top-level
+   navigation that would leave `https://vaidsics.com/anthropology/`. A
+   violation is reported as `ok: false` / `error:
+   "final_url_out_of_scope"`, with no further page extraction and no
+   screenshot — and no further navigation is attempted.
+2. **Retry metrics isolation (P1).** The original tool kept a single set
+   of request/console counters alive across up to 3 navigation-retry
+   attempts, so a failed attempt could inflate the final report's request
+   counts, font-resource list, or console warning/error counts. Each
+   retry attempt now gets its own `Page`, with its own fresh counters and
+   listeners; a failed attempt's `Page` is closed and discarded, and only
+   the winning attempt's data is ever kept.
+3. **H1 rendered-spacing extraction (P2).** H1 text is now extracted via
+   `innerText` (rendered-text semantics) instead of raw
+   `textContent.trim()`, then whitespace-normalized to single spaces. This
+   fixed a real concatenation bug on `optional-coaching`'s H1 — see §2.2.
+4. **Corrected security documentation (P2).** Prior wording overstated two
+   things: that the tool "never touches any URL outside the allowed
+   prefix" (it does — third-party subresources like Google Fonts are
+   unrestricted), and implicitly that certificate handling was harmless
+   (it genuinely disables certificate validation inside this tool's
+   Chromium process/context, as a deliberate cloud-proxy tradeoff). Both
+   `README.md` and this document have been corrected — see "Security
+   notes" / "Security boundary" above.
+
+No WordPress writes, no WP Admin login, no scope expansion beyond these
+four fixes were made in this pass.
+
+## 7. Hardening regression tests
+
+All required cases were re-run after the hardening changes:
+
+1. ✅ `mains-pyq` desktop 1440×900 — real site, `ok: true`, 200, no
+   overflow
+2. ✅ `mains-pyq` mobile 390×844 — real site, `ok: true`, 200, no overflow
+3. ✅ `optional-coaching` desktop 1440×900 — real site, `ok: true`, 200,
+   no overflow, H1 now correctly spaced: `Score 300+ in Anthropology
+   Optional with Vaid Sir`
+4. ✅ Initial URL outside the authorized root rejected — both
+   `https://vaidsics.com/` and `https://example.com/`, `ok: false`, no
+   browser launched, exit code 1
+5. ✅ Controlled redirect / final-URL-out-of-scope test — deterministic,
+   network-free, against a local fixture server: a page that redirects
+   outside the authorized prefix is blocked, reported as `ok: false` /
+   `error: "final_url_out_of_scope"`, and produces no screenshot
+6. ✅ H1 rendered-spacing test — deterministic, network-free: a fixture
+   H1 with a `display:none` node and a `display:block` inline child
+   confirms `innerText`-based extraction excludes hidden text and
+   correctly spaces across the block boundary, normalized to single
+   spaces
+7. ✅ Retry-metrics-isolation test — deterministic, network-free: a
+   fixture server that drops the first connection attempt and succeeds on
+   the second confirms the final report's image request count and
+   console-warning count reflect only the successful attempt
+
+Tests 4–7 are captured as a runnable, repeatable suite at
+`tools/vaid-browser-audit/test/audit-hardening.test.js` (see its README
+section, "Testing"). Tests 1–3 were run live against the real site via the
+CLI as in §2.2/§5.
+
+Also verified for this pass specifically:
+
+- No horizontal-overflow regression on any real page
+- Screenshots and JSON reports remain gitignored (`out/` untracked)
+- No form submission, no authentication, at any point
+- No new runtime dependencies were added (tests use only Node's built-in
+  `http`/`assert`/`fs`/`os`/`path` plus the already-installed Playwright)
+- No secrets or PII collected
+- No `ANAMIKA`-prefixed software artifact names were introduced (tool,
+  file, and function names remain `vaid-*` / plain descriptive names)

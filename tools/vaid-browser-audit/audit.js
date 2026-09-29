@@ -11,9 +11,12 @@
  *                  --width=1440 --height=900 \
  *                  [--out=./out] [--name=mains-pyq-desktop]
  *
- * Domain guard: by default only URLs under https://vaidsics.com/anthropology/
- * are permitted. This cannot be overridden by a CLI flag; it is a hardcoded
- * safety boundary for this tool.
+ * Scope guard: the CLI always audits against
+ * https://vaidsics.com/anthropology/ — both the requested URL and the
+ * final top-level URL after navigation must start with it. This cannot be
+ * overridden by a CLI flag. Third-party subresources (fonts, etc.) that
+ * the authorized page itself loads are not restricted by this guard — see
+ * "Security notes" in README.md.
  */
 
 'use strict';
@@ -32,19 +35,23 @@ function parseArgs(argv) {
   return args;
 }
 
-function assertAllowedUrl(url) {
+// requireHttps exists only so the internal test harness (test/*.test.js)
+// can point this at a local http:// fixture server. The CLI never sets it,
+// so every real invocation still requires https and the vaidsics.com
+// anthropology prefix.
+function assertAllowedUrl(url, allowedPrefix = ALLOWED_PREFIX, requireHttps = true) {
   let parsed;
   try {
     parsed = new URL(url);
   } catch (e) {
     throw new Error(`Invalid URL: ${url}`);
   }
-  if (parsed.protocol !== 'https:') {
+  if (requireHttps && parsed.protocol !== 'https:') {
     throw new Error(`Refusing non-HTTPS URL: ${url}`);
   }
-  if (!url.startsWith(ALLOWED_PREFIX)) {
+  if (!url.startsWith(allowedPrefix)) {
     throw new Error(
-      `Domain guard: URL must start with "${ALLOWED_PREFIX}". Got: ${url}`
+      `Domain guard: URL must start with "${allowedPrefix}". Got: ${url}`
     );
   }
   return parsed;
@@ -58,28 +65,42 @@ function classifyRequest(resourceType) {
   return known.includes(resourceType) ? bucket : (known.includes(bucket) ? bucket : 'other');
 }
 
-async function runAudit({ url, width, height, outDir, name }) {
-  assertAllowedUrl(url);
+function emptyRequestCounts() {
+  return { document: 0, css: 0, js: 0, font: 0, image: 0, xhr: 0, fetch: 0, other: 0 };
+}
+
+async function runAudit({
+  url,
+  width,
+  height,
+  outDir,
+  name,
+  // Test-only overrides — never set by the CLI. Keeping them as explicit
+  // parameters (rather than reading env vars) means the production path
+  // (main() below) provably always uses the real https vaidsics.com scope.
+  allowedPrefix = ALLOWED_PREFIX,
+  requireHttps = true,
+  navTimeoutMs = 30000,
+  useEnvProxy = true,
+}) {
+  assertAllowedUrl(url, allowedPrefix, requireHttps);
 
   const { chromium } = require('playwright');
-
-  const requestCounts = { document: 0, css: 0, js: 0, font: 0, image: 0, xhr: 0, fetch: 0, other: 0 };
-  const fontResources = new Set();
-  const consoleErrors = [];
-  const consoleWarnings = [];
 
   // This cloud environment routes all outbound HTTPS through a local
   // policy-enforcing proxy that re-terminates TLS with its own CA
   // (see /root/.ccr/README.md). Chromium does not pick up HTTPS_PROXY
-  // automatically, so it is passed explicitly. Trusting the proxy's
-  // re-terminated certificate requires BOTH the launch-level
-  // --ignore-certificate-errors flag (covers the CONNECT/TLS handshake
-  // Chromium performs against the proxy itself) and the context-level
-  // ignoreHTTPSErrors (covers the navigated page). This matches every
-  // other CLI tool in this environment, which is pre-configured to trust
-  // the same CA bundle; it does not disable verification against any
-  // other host.
-  const proxyServer = process.env.HTTPS_PROXY || process.env.https_proxy || null;
+  // automatically, so it is passed explicitly. --ignore-certificate-errors
+  // and ignoreHTTPSErrors genuinely disable certificate validation inside
+  // this ephemeral Chromium process/context — this is a deliberate
+  // cloud-proxy compatibility tradeoff, not a claim that TLS is still
+  // fully verified. See "Security notes" in README.md.
+  // useEnvProxy is a test-only override: the local test fixture server
+  // (127.0.0.1) is not reachable through this cloud environment's egress
+  // proxy (it only relays HTTPS CONNECT to real external hosts), so the
+  // test harness runs with useEnvProxy: false. The CLI never sets this,
+  // so every real invocation still goes through the sanctioned proxy.
+  const proxyServer = useEnvProxy ? (process.env.HTTPS_PROXY || process.env.https_proxy || null) : null;
   const browser = await chromium.launch({
     headless: true,
     proxy: proxyServer ? { server: proxyServer } : undefined,
@@ -96,53 +117,153 @@ async function runAudit({ url, width, height, outDir, name }) {
     const context = await browser.newContext({
       viewport: { width, height },
       // Trust this environment's TLS-terminating egress proxy CA for this
-      // session only. No storage state, no cookies persisted, no auth.
+      // session only (see the comment on chromium.launch above — this
+      // does weaken certificate validation for this context).
+      // No storage state, no cookies persisted, no auth.
       ignoreHTTPSErrors: true,
-    });
-    const page = await context.newPage();
-
-    page.on('console', (msg) => {
-      const type = msg.type();
-      if (type === 'error') consoleErrors.push(msg.text());
-      else if (type === 'warning') consoleWarnings.push(msg.text());
-    });
-
-    page.on('requestfinished', (req) => {
-      const bucket = classifyRequest(req.resourceType());
-      if (Object.prototype.hasOwnProperty.call(requestCounts, bucket)) {
-        requestCounts[bucket] += 1;
-      } else {
-        requestCounts.other += 1;
-      }
-      if (req.resourceType() === 'font') {
-        fontResources.add(req.url());
-      }
     });
 
     // This environment's egress proxy occasionally drops the first
-    // connection attempt to a given host; retry navigation a few times
-    // before treating it as a real failure.
+    // connection attempt to a given host. Retry navigation a few times
+    // before treating it as a real failure. Each attempt gets its own
+    // Page with fresh counters/listeners, and a failed attempt's Page is
+    // closed and discarded — so a partial/failed attempt can never leak
+    // request counts, font resources, or console messages into the final
+    // report. Only the winning attempt's data is ever kept.
     const NAV_ATTEMPTS = 3;
+    let page = null;
     let response = null;
     let lastNavError = null;
+    let requestCounts = null;
+    let fontResources = null;
+    let consoleErrors = null;
+    let consoleWarnings = null;
+    let scopeViolationUrl = null;
+
     for (let attempt = 1; attempt <= NAV_ATTEMPTS; attempt += 1) {
+      const attemptRequestCounts = emptyRequestCounts();
+      const attemptFontResources = new Set();
+      const attemptConsoleErrors = [];
+      const attemptConsoleWarnings = [];
+      let attemptOutOfScopeUrl = null;
+
+      const attemptPage = await context.newPage();
+
+      attemptPage.on('console', (msg) => {
+        const type = msg.type();
+        if (type === 'error') attemptConsoleErrors.push(msg.text());
+        else if (type === 'warning') attemptConsoleWarnings.push(msg.text());
+      });
+
+      attemptPage.on('requestfinished', (req) => {
+        const bucket = classifyRequest(req.resourceType());
+        if (Object.prototype.hasOwnProperty.call(attemptRequestCounts, bucket)) {
+          attemptRequestCounts[bucket] += 1;
+        } else {
+          attemptRequestCounts.other += 1;
+        }
+        if (req.resourceType() === 'font') {
+          attemptFontResources.add(req.url());
+        }
+      });
+
+      // Block (and record) any top-level navigation — the initial one or
+      // a later redirect/client-side navigation — that would take the
+      // audited page outside the authorized prefix. This does not affect
+      // subresource requests (fonts, CSS, JS, images, xhr/fetch), which
+      // the authorized page may legitimately load from third-party
+      // domains such as fonts.gstatic.com.
+      await attemptPage.route('**/*', (route) => {
+        const req = route.request();
+        if (
+          req.isNavigationRequest() &&
+          req.frame() === attemptPage.mainFrame() &&
+          !req.url().startsWith(allowedPrefix)
+        ) {
+          attemptOutOfScopeUrl = req.url();
+          return route.abort('blockedbyclient');
+        }
+        return route.continue();
+      });
+
       try {
-        response = await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+        response = await attemptPage.goto(url, { waitUntil: 'networkidle', timeout: navTimeoutMs });
+        if (attemptOutOfScopeUrl) {
+          // Defensive: a blocked navigation request should make goto()
+          // reject (handled below), but if a future engine version ever
+          // resolves it instead, still treat this as a scope violation
+          // rather than a successful audit.
+          scopeViolationUrl = attemptOutOfScopeUrl;
+          await attemptPage.close().catch(() => {});
+          break;
+        }
+        page = attemptPage;
+        requestCounts = attemptRequestCounts;
+        fontResources = attemptFontResources;
+        consoleErrors = attemptConsoleErrors;
+        consoleWarnings = attemptConsoleWarnings;
         lastNavError = null;
         break;
       } catch (navErr) {
+        if (attemptOutOfScopeUrl) {
+          // The navigation failed because we deliberately blocked a
+          // redirect/navigation outside the authorized prefix. This is a
+          // scope violation, not a transient network failure — do not
+          // retry it.
+          scopeViolationUrl = attemptOutOfScopeUrl;
+          await attemptPage.close().catch(() => {});
+          break;
+        }
         lastNavError = navErr;
+        await attemptPage.close().catch(() => {});
       }
     }
+
+    // P1 scope guard: whether the block happened on the initial request,
+    // a redirect, or a later top-level navigation, stop here — no further
+    // page extraction, no screenshot, and no additional navigation is
+    // attempted.
+    if (scopeViolationUrl) {
+      result = {
+        ok: false,
+        requestedUrl: url,
+        viewport: { width, height },
+        error: 'final_url_out_of_scope',
+        outOfScopeUrl: scopeViolationUrl,
+        timestamp: new Date().toISOString(),
+      };
+      return result;
+    }
+
     if (lastNavError) throw lastNavError;
+
     const httpStatus = response ? response.status() : null;
     const finalUrl = page.url();
 
+    // Belt-and-suspenders: confirm the final top-level URL is still
+    // in-scope even if no navigation request was ever flagged (e.g. a
+    // same-document history API navigation the route handler can't see).
+    if (!finalUrl.startsWith(allowedPrefix)) {
+      result = {
+        ok: false,
+        requestedUrl: url,
+        finalUrl,
+        viewport: { width, height },
+        error: 'final_url_out_of_scope',
+        outOfScopeUrl: finalUrl,
+        timestamp: new Date().toISOString(),
+      };
+      return result;
+    }
+
     const title = await page.title();
 
+    // Rendered-text semantics (innerText), not raw textContent, so styled
+    // spans inside the heading don't get concatenated without whitespace.
     const h1Text = await page.evaluate(() => {
       const h1 = document.querySelector('h1');
-      return h1 ? h1.textContent.trim() : null;
+      if (!h1) return null;
+      return h1.innerText.replace(/\s+/g, ' ').trim();
     });
 
     const canonical = await page.evaluate(() => {
@@ -256,6 +377,8 @@ async function main() {
 
   let report;
   try {
+    // No test-only overrides are passed here: the CLI always enforces the
+    // real https://vaidsics.com/anthropology/ scope.
     report = await runAudit({ url, width, height, outDir, name });
   } catch (err) {
     report = {
